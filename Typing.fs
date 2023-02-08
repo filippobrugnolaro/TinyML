@@ -11,15 +11,6 @@ let type_error fmt = throw_formatted TypeError fmt
 
 type subst = (tyvar * ty) list
 
-// TODO implement this
-let unify (t1 : ty) (t2 : ty) : subst = []
-
-// TODO implement this
-let apply_subst (t : ty) (s : subst) : ty = t
-
-// TODO implement this
-let compose_subst (s1 : subst) (s2 : subst) : subst = s1 @ s2
-
 let rec freevars_ty t =
     match t with
     | TyName s -> Set.empty
@@ -32,18 +23,106 @@ let freevars_scheme (Forall (tvs, t)) = freevars_ty t - tvs
 let freevars_scheme_env env =
     List.fold (fun r (_, sch) -> r + freevars_scheme sch) Set.empty env
 
+let rec apply_subst (t : ty) (s : subst) : ty =
+    match t with
+    | TyName _ -> t
+    | TyVar tv ->
+
+        let finder = List.tryFind(fun (tvs, _) -> tv = tvs) s
+
+        match finder with
+        | None -> t
+        | Some(_, t) -> 
+            let ftv = freevars_ty t
+
+            if not (Set.contains tv ftv) then t else type_error "Cannot apply substitution from %O to %O. Circularity not allowed" tv t
+    | TyArrow(t1, t2) -> TyArrow(apply_subst t1 s, apply_subst t2 s)
+    | TyTuple tl -> TyTuple(List.map (fun t -> apply_subst t s) tl)
+
+// function that compose two substitutions by construction (constrained_s2 @ s1)
+let compose_subst (s2 : subst) (s1 : subst) : subst =
+
+    // function that applies the constraint of domains' disjunction and apply substitution
+    let apply_subs_constrained (tv2, t2) =
+
+        let finder = List.tryFind(fun (tv1, _) -> tv1 = tv2) s1
+
+        match finder with
+        | None -> tv2, t2
+        | Some (tv1, t1) -> 
+            if t1 = t2 then tv2, apply_subst t2 s1 
+            else type_error "Cannot compose substitution with the same TyVar mapping for different ty. (s2 has [%d -> %O] while s1 has [%d -> %O])" tv2 t2 tv1 t1
+     
+    (List.map apply_subs_constrained s2) @ s1
+
+// unify: function takes two types and calculates a substitution that makes two types to be the same (Martelli - Montanari algorithm)
+let rec unify (t1 : ty) (t2 : ty) : subst =
+    match t1, t2 with
+    | TyName tc1, TyName tc2 -> if tc1 = tc2 then [] else type_error "Cannot unify type constructors %s and %s." tc1 tc2
+    | TyVar tv, t -> List.singleton(tv,t) 
+    | t, TyVar tv -> List.singleton(tv,t) // question for professor: can I do it in a single way with (TyVar tv, t)?
+    | TyArrow (t1, t2), TyArrow (t3, t4) -> compose_subst (unify t1 t3) (unify t2 t4)
+    | TyTuple tt1, TyTuple tt2 ->
+
+        let isMinLen = List.length tt1 > 1 && List.length tt2 > 1
+        let isEqLen = List.length tt1 = List.length tt2
+
+        if isMinLen && isEqLen then List.fold (fun acc (t1,t2) -> compose_subst (unify t1 t2) acc) List.Empty (List.zip tt1 tt2)
+        else
+            if isMinLen = false then type_error "Cannot unify tuples. Tuples needs at least two ty." else type_error "Cannot unify tuples with different lengths."
+            // question for professor Is isMinLen needed and how much de acctailed have to be describe errors?
+    | _ -> type_error "Cannot unify types %O and %O" t1 t2
 
 // basic environment: add builtin operators at will
 //
 
-let gamma0 = [
+let ty_env_gamma_0 = [
+    // binary int operators
     ("+", TyArrow (TyInt, TyArrow (TyInt, TyInt)))
     ("-", TyArrow (TyInt, TyArrow (TyInt, TyInt)))
+    ("*", TyArrow(TyInt, TyArrow(TyInt, TyInt)))
+    ("/", TyArrow(TyInt, TyArrow(TyInt, TyInt)))
+    ("%", TyArrow(TyInt, TyArrow(TyInt, TyInt)))
+    (">", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
+    (">=", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
+    ("<", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
+    ("<=", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
+    ("=", TyArrow(TyInt, TyArrow(TyInt, TyBool))) // = or ==
+    ("<>", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
+
+    // binary float operators
+    ("+.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("-.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("*.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("/.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("<.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("<=.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    (">.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    (">=.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("=.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("<>.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+
+    // binary bool operators
+    ("and", TyArrow (TyBool, TyArrow(TyBool, TyBool)))
+    ("or", TyArrow (TyBool, TyArrow(TyBool, TyBool)))
+
+    // unary operators
+    ("not", TyArrow (TyBool, TyBool))
+    ("neg", TyArrow (TyInt, TyInt))
+    ("neg.", TyArrow (TyFloat, TyFloat))
 
 ]
 
 
-// TODO continue implementing this
+let scheme_env_gamma_0 = List.map (fun (op, t) -> op, Forall (Set.empty, t)) ty_env_gamma_0
+
+
+(*
+            ----------------------------------------
+                    TYPE INFERENCE ALGORITHM
+            ----------------------------------------
+*)
+
 let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
     match e with
     | Lit (LInt _) -> TyInt, [] 
