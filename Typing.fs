@@ -13,7 +13,7 @@ type subst = (tyvar * ty) list
 
 (*
         --------------------------------------
-                    FREE VARIABLES
+           FREE VARIABLES (TY, SCHEME, ENV)
         --------------------------------------
 *)
 
@@ -30,6 +30,32 @@ let freevars_scheme_env env =
     List.fold (fun r (_, sch) -> r + freevars_scheme sch) Set.empty env
 
 (*
+        --------------------------------------
+                    GENERALIZATION
+        --------------------------------------
+*)
+
+let generalize_to_scheme (t: ty) (env: scheme env) : scheme =
+    let alpha_vec = freevars_ty t - freevars_scheme_env env
+    Forall(alpha_vec, t)
+
+(*
+        ------------------------------------
+                  REFRESH OF TYVAR
+        ------------------------------------
+*) 
+
+let refresh_tyvar () : ty = failwithf "not implemented" // TO DO
+
+(*
+        -------------------------------------
+                    INSTANTIATION
+        -------------------------------------
+*)
+
+let instantiate_to_ty (Forall(tvs, ts)): ty = failwithf "not implemented" // TO DO
+    
+(*
         -------------------------------------
                     SUBSTITUTIONS
         -------------------------------------
@@ -45,15 +71,15 @@ let rec apply_substitution_ty (t : ty) (s : subst) : ty =
         match finder with
         | None -> t
         | Some(_, t) ->
-            let ftv = freevars_ty t
-            if not (Set.contains tv ftv) then t else type_error "Cannot apply substitution from %O to %O. Circularity not allowed" tv t
+            let alpha_vec = freevars_ty t
+            if not (Set.contains tv alpha_vec) then t else type_error "Cannot apply substitution from %O to %O. Circularity not allowed" tv t
 
     | TyArrow(t1, t2) -> TyArrow(apply_substitution_ty t1 s, apply_substitution_ty t2 s)
     | TyTuple tl -> TyTuple(List.map (fun t -> apply_substitution_ty t s) tl)
 
-let apply_substitution_scheme (Forall (tvs, ts)) (s: subst): scheme =
-    let new_substitution = List.filter(fun (tv, _) -> not (Set.contains tv tvs)) s
-    Forall(tvs, apply_substitution_ty ts new_substitution)
+let apply_substitution_scheme (Forall (alpha_vec, t)) (s: subst): scheme =
+    let new_subst = List.filter(fun (tv, _) -> not (Set.contains tv alpha_vec)) s
+    Forall(alpha_vec, apply_substitution_ty t new_subst)
 
 let apply_substitution_scheme_env (env: scheme env) (s: subst): scheme env =
     List.map (fun (e, sch) -> e, apply_substitution_scheme sch s) env
@@ -78,24 +104,25 @@ let compose_subst (s2 : subst) (s1 : subst) : subst =
         -----------------------------------
                     UNIFICATION
         -----------------------------------
+        question for professor:
+        - can I do it in a single way with (TyVar tv, t)?
+        - Is isMinLen needed and how much do I have to describe errors' details?
 *)
 
-// unify: function taking two types and calculating a substitution that makes two types to be the same (Martelli - Montanari algorithm)
 let rec unify (t1 : ty) (t2 : ty) : subst =
     match t1, t2 with
-    | TyName tc1, TyName tc2 -> if tc1 = tc2 then [] else type_error "Cannot unify type constructors %s and %s." tc1 tc2
+    | TyName tn1, TyName tn2 -> if tn1 = tn2 then List.empty else type_error "Cannot unify type constructors %s and %s." tn1 tn2
     | TyVar tv, t -> List.singleton(tv,t) 
-    | t, TyVar tv -> List.singleton(tv,t) // question for professor: can I do it in a single way with (TyVar tv, t)?
+    | t, TyVar tv -> List.singleton(tv,t) 
     | TyArrow (t1, t2), TyArrow (t3, t4) -> compose_subst (unify t1 t3) (unify t2 t4)
     | TyTuple tt1, TyTuple tt2 ->
 
         let isMinLen = List.length tt1 > 1 && List.length tt2 > 1
         let isEqLen = List.length tt1 = List.length tt2
 
-        if isMinLen && isEqLen then List.fold (fun acc (t1,t2) -> compose_subst (unify t1 t2) acc) List.Empty (List.zip tt1 tt2)
+        if isMinLen && isEqLen then List.fold (fun acc (t1,t2) -> compose_subst (unify t1 t2) acc) List.empty (List.zip tt1 tt2)
         else
-            if isMinLen = false then type_error "Cannot unify tuples. Tuples needs at least two ty." else type_error "Cannot unify tuples with different lengths."
-            // question for professor Is isMinLen needed and how much do I have to describe errors' details?
+            if not isMinLen then type_error "Cannot unify tuples. Tuples needs at least two ty." else type_error "Cannot unify tuples with different lengths."
     | _ -> type_error "Cannot unify types %O and %O" t1 t2
 
 // basic environment: add builtin operators at will
@@ -116,16 +143,16 @@ let ty_env_gamma_0 = [
     ("<>", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
 
     // binary float operators
-    ("+.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
-    ("-.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
-    ("*.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
-    ("/.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
-    ("<.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    ("<=.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    (">.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    (">=.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    ("=.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    ("<>.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("+", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("-", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("*", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("/", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("<", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("<=", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    (">", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    (">=", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("=", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("<>", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
 
     // binary bool operators
     ("and", TyArrow (TyBool, TyArrow(TyBool, TyBool)))
@@ -133,8 +160,8 @@ let ty_env_gamma_0 = [
 
     // unary operators
     ("not", TyArrow (TyBool, TyBool))
-    ("neg", TyArrow (TyInt, TyInt))
-    ("neg.", TyArrow (TyFloat, TyFloat))
+    ("-", TyArrow (TyInt, TyInt))
+    ("-", TyArrow (TyFloat, TyFloat))
 
 ]
 
@@ -146,25 +173,123 @@ let scheme_env_gamma_0 = List.map (fun (op, t) -> op, Forall (Set.empty, t)) ty_
         ----------------------------------------
                 TYPE INFERENCE ALGORITHM
         ----------------------------------------
+        question for professor:
+        - IfThenElse: If e3o is None, do I have to apply substitution made by unifying t2 with TyUnit? Why TyUnit?
+        - Lambda & Let & LetRec: how about tyo?
+
 *)
 
 let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
     match e with
-    | Lit (LInt _) -> TyInt, [] 
-    | Lit (LBool _) -> TyBool, []
-    | Lit (LFloat _) -> TyFloat, [] 
-    | Lit (LString _) -> TyString, []
-    | Lit (LChar _) -> TyChar, [] 
-    | Lit LUnit -> TyUnit, []
+    | Lit (LInt _) -> TyInt, List.empty
+    | Lit (LBool _) -> TyBool, List.empty
+    | Lit (LFloat _) -> TyFloat, List.empty 
+    | Lit (LString _) -> TyString, List.empty
+    | Lit (LChar _) -> TyChar, List.empty 
+    | Lit LUnit -> TyUnit, List.empty
 
-    | Let (x, tyo, e1, e2) ->
+    | Var x ->
+
+        let finder = List.tryFind (fun (y,_) -> y = x) env
+
+        match finder with
+        | None -> type_error "Identifier %s not definined in the environment" x
+        | Some (_,sch) -> instantiate_to_ty sch, List.empty
+
+    | Lambda (x, tyo, e) -> // TO DO
+
+        let alpha = refresh_tyvar () // TO DO
+        let sch = Forall(Set.empty, alpha)
+
+        let t2, s1 = typeinfer_expr ((x, sch) :: env) e
+
+        TyArrow(apply_substitution_ty alpha s1, t2), s1
+
+    | App (e1, e2) ->
         let t1, s1 = typeinfer_expr env e1
-        let tvs = freevars_ty t1 - freevars_scheme_env env
-        let sch = Forall (tvs, t1)
-        let t2, s2 = typeinfer_expr ((x, sch) :: env) e2
-        t2, compose_subst s2 s1
+        let t2, s2 = typeinfer_expr (apply_substitution_scheme_env env s1) e2
+
+        let s3 = compose_subst s2 s1
+
+        let alpha_freshed = refresh_tyvar () // TO DO
+
+        let s4 = unify t1 (TyArrow(t2, alpha_freshed))
+
+        apply_substitution_ty alpha_freshed s4, compose_subst s4 s3
+
+    | Tuple tl -> failwithf "not implemented" // TO DO
+
+    | Let (x, tyo, e1, e2) -> // TO DO
+
+        let t1, s1 = typeinfer_expr env e1
+        let sch = generalize_to_scheme t1 (apply_substitution_scheme_env env s1)
+
+        let t2, s2 = typeinfer_expr ((x, sch) :: apply_substitution_scheme_env env s1) e2
+
+        let s3 = compose_subst s2 s1
+
+        apply_substitution_ty t2 s3, s3
+
+
+    | LetRec (f, tyo, e1, e2) ->  // TO DO
+        
+        let alpha = refresh_tyvar ()
+        let f_sch = Forall(Set.empty, alpha)
+
+        let t1, s1 = typeinfer_expr ((f, f_sch) :: env) e1
+
+        let sch_1 = generalize_to_scheme t1 (apply_substitution_scheme_env env s1)
+
+        let t2, s2 = typeinfer_expr ((f, sch_1) :: (apply_substitution_scheme_env env s1)) e2
+
+        let s3 = compose_subst s2 s1
+
+        apply_substitution_ty t2 s3, s3
+        
+    
+    | IfThenElse (e1, e2, e3o) -> 
+
+        let t1, s1 = typeinfer_expr env e1
+
+        let s2 = unify t1 TyBool
+
+        let s3 = compose_subst s2 s1
+
+        let t2, s4 = typeinfer_expr (apply_substitution_scheme_env env s3) e2
+        
+        let s5 = compose_subst s4 s3
+
+        match e3o with
+        | None ->
+            let s6 = unify t2 TyUnit
+
+            apply_substitution_ty t2 s6, compose_subst s6 s5
+
+        | Some e3 ->
+            let t3, s6 = typeinfer_expr (apply_substitution_scheme_env env s5) e3
+
+            let s7 = compose_subst s6 s5
+
+            let s8 = unify (apply_substitution_ty t2 s7) (apply_substitution_ty t3 s7)
+
+            let s9 = compose_subst s8 s7
+
+            apply_substitution_ty t2 s8, s9
+
+    | BinOp (e1, op, e2) -> failwithf "not implemented" // TO DO
+
+    | UnOp (op, e1) -> failwithf "not implemented" // TO DO
 
     | _ -> failwithf "not implemented"
+
+
+(*
+        -------------------------------------
+             PRETTY PRINT TYPE INFERENCE
+        -------------------------------------
+*)
+
+let typeinfer_pretty_print t = failwithf "not implemented"
 
 
 // type checker
