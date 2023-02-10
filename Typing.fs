@@ -343,8 +343,7 @@ let rec typecheck_expr (env : ty env) (e : expr) : ty =
             if t2 <> t3 then type_error "type mismatch in if-then-else: then branch has type %s and is different from else branch type %s" (pretty_ty t2) (pretty_ty t3)
             t2
 
-    | Tuple es ->
-        TyTuple (List.map (typecheck_expr env) es)
+    | Tuple es -> TyTuple (List.map (typecheck_expr env) es)
 
     | LetRec (f, None, e1, e2) ->
         unexpected_error "typecheck_expr: unannotated let rec is not supported"
