@@ -15,15 +15,15 @@ let interpret_expr tenv venv e =
     #if DEBUG
     printfn "AST:\t%A\npretty:\t%s" e (pretty_expr e)
     #endif
-    let t = Typing.typecheck_expr tenv e // type inference changing
+    let t, s = Typing.typeinfer_expr tenv e // type inference changing
     #if DEBUG
-    printfn "type:\t%s" (pretty_ty t) // pretty print of type inference
+    printfn "type:\t%s" (Typing.pretty_ty_infer (Typing.apply_substitution_ty t s)) // pretty print of type inference
     #endif
     let v = Eval.eval_expr venv e
     #if DEBUG
     printfn "value:\t%s\n" (pretty_value v)
     #endif
-    t, v
+    Typing.apply_substitution_ty t s, v
 
 let trap f =
     try f ()
@@ -42,7 +42,7 @@ let main_interpreter filename =
 
 let main_interactive () =
     printfn "entering interactive mode..."
-    let mutable tenv = Typing.ty_env_gamma_0
+    let mutable tenv = Typing.scheme_env_gamma_0
     let mutable venv = []
     while true do
         trap <| fun () ->
@@ -56,11 +56,11 @@ let main_interactive () =
                 | IBinding (_, x, _, _ as b) ->
                     let t, v = interpret_expr tenv venv (LetIn (b, Var x)) // TRICK: put the variable itself as body after the in
                     // update global environments
-                    tenv <- (x, t) :: tenv
+                    tenv <- (x, Forall (Typing.freevars_ty t - Typing.freevars_scheme_env tenv, t)) :: tenv
                     venv <- (x, v) :: venv
                     x, (t, v)
 
-            printfn "val %s : %s = %s" x (pretty_ty t) (pretty_value v)
+            printfn "val %s : %s = %s" x (Typing.pretty_ty_infer t) (pretty_value v)
                 
     
 [<EntryPoint>]

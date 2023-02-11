@@ -17,17 +17,51 @@ type subst = (tyvar * ty) list
         --------------------------------------
 *)
 
+// freevers_ty:
+// it calculates the free type variables occurring on a type t
 let rec freevars_ty t =
     match t with
-    | TyName s -> Set.empty
+    | TyName _ -> Set.empty
     | TyArrow (t1, t2) -> (freevars_ty t1) + (freevars_ty t2)
     | TyVar tv -> Set.singleton tv
     | TyTuple ts -> List.fold (fun r t -> r + freevars_ty t) Set.empty ts
 
-let freevars_scheme (Forall (tvs, t)) = freevars_ty t - tvs
+// freevers_scheme:
+// it calculates the free type variables occurring on a type scheme sch
+let freevars_scheme (Forall (tvs, t)) = Set.difference (freevars_ty t) tvs 
 
+// freevers_scheme_env:
+// it calculates the free type variables occurring on an environment env
 let freevars_scheme_env env =
     List.fold (fun r (_, sch) -> r + freevars_scheme sch) Set.empty env
+
+(*
+        -------------------------------------
+                    PRETTY PRINT
+        -------------------------------------
+*)
+
+let rec pretty_ty_tvs mappings t =
+    match t with
+    | TyName s -> s
+    | TyArrow (TyArrow(t1, t2), t3) -> sprintf "(%s -> %s) -> %s" (pretty_ty_tvs mappings t1) (pretty_ty_tvs mappings t2) (pretty_ty_tvs mappings t3)
+    | TyArrow (t1, TyArrow(t2, t3)) -> sprintf "%s -> (%s -> %s)" (pretty_ty_tvs mappings t1) (pretty_ty_tvs mappings t2) (pretty_ty_tvs mappings t3)
+    | TyArrow (t1, t2) -> sprintf "%s -> %s" (pretty_ty_tvs mappings t1) (pretty_ty_tvs mappings t2)
+    | TyVar n -> 
+        let _, pretty_tv = List.find (fun (ftv, _) -> ftv = n) mappings
+        sprintf "'%c" pretty_tv
+    | TyTuple ts -> sprintf "(%s)" (pretty_tupled (pretty_ty_tvs mappings) ts)
+
+let pretty_ty_infer t =
+
+    let ftvs = freevars_ty t
+
+    if Set.count ftvs > 0 
+        then
+            let alphabet = List.truncate (Set.count ftvs) ['a' .. 'z']
+            pretty_ty_tvs (List.zip (Set.toList ftvs) alphabet) t
+        else
+            Ast.pretty_ty t
 
 (*
         --------------------------------------
@@ -35,32 +69,40 @@ let freevars_scheme_env env =
         --------------------------------------
 *)
 
+// generalize_to_scheme:
+// it converts a type to a type scheme -> it calculates which type variables are polymorphic
 let generalize_to_scheme (t: ty) (env: scheme env) : scheme =
-    let alpha_vec = freevars_ty t - freevars_scheme_env env
+    let alpha_vec = Set.difference (freevars_ty t) (freevars_scheme_env env)
     Forall(alpha_vec, t)
 
 (*
         ------------------------------------
                   REFRESH OF TYVAR
         ------------------------------------
+        question for prefessor: can I use mutable variables?
+        If I don't use mutable counter
+        it doesn't work and it would be more complex
+        because it needs the list of refreshed variables in order
+        to get the count updated
 *) 
 
-let refresh_tyvar () : ty = failwithf "not implemented" // TO DO
+let mutable tyVarCounter = 0
 
-(*
-        -------------------------------------
-                    INSTANTIATION
-        -------------------------------------
-*)
-
-let instantiate_to_ty (Forall(tvs, ts)): ty = failwithf "not implemented" // TO DO
+// make_fresh_tyvar:
+// it allows to get a fresh type variable
+let make_fresh_tyvar () : ty = // TO DO check
+    tyVarCounter <- tyVarCounter + 1
+    TyVar tyVarCounter
     
+
 (*
         -------------------------------------
                     SUBSTITUTIONS
         -------------------------------------
 *)
 
+// apply_substitution_ty:
+// it applies a substitution to a type
 let rec apply_substitution_ty (t : ty) (s : subst) : ty =
     match t with
     | TyName _ -> t
@@ -71,34 +113,58 @@ let rec apply_substitution_ty (t : ty) (s : subst) : ty =
         match finder with
         | None -> t
         | Some(_, t) ->
+
+            // circularity check:
+            // it calculates alpha occurring on t and checks if the matching type variable is in the set alpha
             let alpha_vec = freevars_ty t
-            if not (Set.contains tv alpha_vec) then t else type_error "Cannot apply substitution from %O to %O. Circularity not allowed" tv t
+
+            if not (Set.contains tv alpha_vec) then t
+            else type_error "Cannot apply substitution from %O to %O. Circularity not allowed" tv t
 
     | TyArrow(t1, t2) -> TyArrow(apply_substitution_ty t1 s, apply_substitution_ty t2 s)
     | TyTuple tl -> TyTuple(List.map (fun t -> apply_substitution_ty t s) tl)
 
+// apply_substitution_scheme:
+// it applies a substitution to a type scheme
 let apply_substitution_scheme (Forall (alpha_vec, t)) (s: subst): scheme =
     let new_subst = List.filter(fun (tv, _) -> not (Set.contains tv alpha_vec)) s
     Forall(alpha_vec, apply_substitution_ty t new_subst)
 
+// apply_substitution_scheme_env:
+// it applies a substitution to an environment
 let apply_substitution_scheme_env (env: scheme env) (s: subst): scheme env =
     List.map (fun (e, sch) -> e, apply_substitution_scheme sch s) env
 
-// function that compose two substitutions by construction (constrained_s2 @ s1)
+// compose_subst:
+// it composes two substitutions by construction (constrained_s2 @ s1)
 let compose_subst (s2 : subst) (s1 : subst) : subst =
 
-    // function that applies the constraint of domains' disjunction and apply substitution
+    // it applies the constraint of domains' disjunction for a single element of substitution
     let apply_subs_constrained (tv2, t2) =
 
+        // looking for a substitution with the same domain in s1
         let finder = List.tryFind(fun (tv1, _) -> tv1 = tv2) s1
 
         match finder with
-        | None -> tv2, t2
-        | Some (tv1, t1) -> 
+        | None -> tv2, t2 // -> domains disjoint
+        | Some (tv1, t1) -> // -> domains not disjoint -> t1 must be t2 in order to have same substitution
             if t1 = t2 then tv2, apply_substitution_ty t2 s1 
             else type_error "Cannot compose substitution with the same TyVar mapping for different ty. (s2 has [%d -> %O] while s1 has [%d -> %O])" tv2 t2 tv1 t1
      
+     // need a map in order to apply constraints in all elements of substitution
     (List.map apply_subs_constrained s2) @ s1
+
+(*
+        -------------------------------------
+                    INSTANTIATION
+        -------------------------------------
+*)
+
+// instantiate:
+// it converts a type scheme to a type -> it refreshes its polymorphic type variables
+let instantiate_to_ty (Forall(tvs, ts)): ty =
+    let update = Set.fold (fun acc tv -> (tv, make_fresh_tyvar ()) :: acc) List.empty tvs
+    apply_substitution_ty ts update
 
 (*
         -----------------------------------
@@ -129,36 +195,44 @@ let rec unify (t1 : ty) (t2 : ty) : subst =
 //
 
 let ty_env_gamma_0 = [
-    // binary int operators
+
+    // binary artimetic operators
+
     ("+", TyArrow (TyInt, TyArrow (TyInt, TyInt)))
     ("-", TyArrow (TyInt, TyArrow (TyInt, TyInt)))
-    ("*", TyArrow(TyInt, TyArrow(TyInt, TyInt)))
-    ("/", TyArrow(TyInt, TyArrow(TyInt, TyInt)))
-    ("%", TyArrow(TyInt, TyArrow(TyInt, TyInt)))
-    (">", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
-    (">=", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
-    ("<", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
-    ("<=", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
-    ("=", TyArrow(TyInt, TyArrow(TyInt, TyBool))) // = or ==
-    ("<>", TyArrow(TyInt, TyArrow(TyInt, TyBool)))
+    ("*", TyArrow (TyInt, TyArrow(TyInt, TyInt)))
+    ("/", TyArrow (TyInt, TyArrow(TyInt, TyInt)))
+    ("%", TyArrow (TyInt, TyArrow(TyInt, TyInt)))
 
-    // binary float operators
     ("+", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
     ("-", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
     ("*", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
     ("/", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
-    ("<", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    ("<=", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("%", TyArrow (TyFloat, TyArrow(TyFloat, TyFloat)))
+
+    // binary float operators
+
+    (">", TyArrow (TyInt, TyArrow(TyInt, TyBool)))
+    (">=", TyArrow (TyInt, TyArrow(TyInt, TyBool)))
+    ("<", TyArrow (TyInt, TyArrow(TyInt, TyBool)))
+    ("<=", TyArrow (TyInt, TyArrow(TyInt, TyBool)))
+    ("=", TyArrow (TyInt, TyArrow(TyInt, TyBool)))
+    ("<>", TyArrow (TyInt, TyArrow(TyInt, TyBool)))
+
     (">", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
     (">=", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("<", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("<=", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
     ("=", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
     ("<>", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
 
     // binary bool operators
+
     ("and", TyArrow (TyBool, TyArrow(TyBool, TyBool)))
     ("or", TyArrow (TyBool, TyArrow(TyBool, TyBool)))
 
     // unary operators
+
     ("not", TyArrow (TyBool, TyBool))
     ("-", TyArrow (TyInt, TyInt))
     ("-", TyArrow (TyFloat, TyFloat))
@@ -176,7 +250,6 @@ let scheme_env_gamma_0 = List.map (fun (op, t) -> op, Forall (Set.empty, t)) ty_
         question for professor:
         - IfThenElse: If e3o is None, do I have to apply substitution made by unifying t2 with TyUnit? Why TyUnit?
         - Lambda & Let & LetRec: how about tyo?
-
 *)
 
 let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
@@ -196,9 +269,9 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
         | None -> type_error "Identifier %s not definined in the environment" x
         | Some (_,sch) -> instantiate_to_ty sch, List.empty
 
-    | Lambda (x, tyo, e) -> // TO DO
+    | Lambda (x, tyo, e) -> // TO DO tyo
 
-        let alpha = refresh_tyvar () // TO DO
+        let alpha = make_fresh_tyvar () // TO DO check
         let sch = Forall(Set.empty, alpha)
 
         let t2, s1 = typeinfer_expr ((x, sch) :: env) e
@@ -211,15 +284,15 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
 
         let s3 = compose_subst s2 s1
 
-        let alpha_freshed = refresh_tyvar () // TO DO
+        let alpha_freshed = make_fresh_tyvar () // TO DO check
 
-        let s4 = unify t1 (TyArrow(t2, alpha_freshed))
+        let s4 = unify t1 (TyArrow(t2, alpha_freshed)) // 
 
         apply_substitution_ty alpha_freshed s4, compose_subst s4 s3
 
     | Tuple tl -> failwithf "not implemented" // TO DO
 
-    | Let (x, tyo, e1, e2) -> // TO DO
+    | Let (x, tyo, e1, e2) -> // TO DO tyo
 
         let t1, s1 = typeinfer_expr env e1
         let sch = generalize_to_scheme t1 (apply_substitution_scheme_env env s1)
@@ -231,9 +304,9 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
         apply_substitution_ty t2 s3, s3
 
 
-    | LetRec (f, tyo, e1, e2) ->  // TO DO
+    | LetRec (f, tyo, e1, e2) -> // TO DO tyo
         
-        let alpha = refresh_tyvar ()
+        let alpha = make_fresh_tyvar ()
         let f_sch = Forall(Set.empty, alpha)
 
         let t1, s1 = typeinfer_expr ((f, f_sch) :: env) e1
@@ -259,7 +332,7 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
         
         let s5 = compose_subst s4 s3
 
-        match e3o with
+        match e3o with 
         | None ->
             let s6 = unify t2 TyUnit
 
@@ -276,20 +349,21 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
 
             apply_substitution_ty t2 s8, s9
 
-    | BinOp (e1, op, e2) -> failwithf "not implemented" // TO DO
+    | BinOp (e1, op, e2) ->
+        if List.contains op (List.map (fun (str, _) -> str) scheme_env_gamma_0)
+            then  
+                typeinfer_expr env (App (App (Var op, e1), e2))
+            else 
+                unexpected_error "typeinfer_expr: unsupported binary operator (%s)" op
 
-    | UnOp (op, e1) -> failwithf "not implemented" // TO DO
+    | UnOp (op, e) ->
+        if List.contains op (List.map (fun (s, _) -> s) scheme_env_gamma_0)
+            then  
+                typeinfer_expr env (App (Var op, e))
+            else 
+                unexpected_error "typeinfer_expr: unsupported unary operator (%s)" op
 
-    | _ -> failwithf "not implemented"
-
-
-(*
-        -------------------------------------
-             PRETTY PRINT TYPE INFERENCE
-        -------------------------------------
-*)
-
-let typeinfer_pretty_print t = failwithf "not implemented"
+    | _ -> type_error "Expresssion inserted not implemented"
 
 
 // type checker
