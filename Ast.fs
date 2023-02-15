@@ -172,7 +172,7 @@ and pretty_app expr =
     | App (e1, e2) ->
         let sub_e1 =
             match e1 with
-            | Var _ 
+            | Var _
             | Lit _ -> pretty_expr e1
             | App (_, _) -> pretty_app e1
             | _ -> sprintf "(%s)" (pretty_expr e1)

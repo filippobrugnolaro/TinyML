@@ -84,7 +84,7 @@ let mutable tyVarCounter = 0
 
 // make_fresh_tyvar:
 // it allows to get a fresh type variable
-let make_fresh_tyvar () : ty = // TO DO check
+let make_fresh_tyvar () : ty =
     tyVarCounter <- tyVarCounter + 1
     TyVar tyVarCounter
     
@@ -265,13 +265,14 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
 
         let t2, s1 = typeinfer_expr ((x, sch) :: env) e
 
+        let t1 = apply_substitution_ty alpha s1
+
         let s2 = match tyo with
                  | None -> List.empty
-                 | Some t -> unify t alpha
-        
-        let s3 = compose_subst s2 s1
+                 | Some t -> unify t1 t
+       
 
-        TyArrow(apply_substitution_ty alpha s3, t2), s3
+        TyArrow(apply_substitution_ty t1 s2, t2), compose_subst s2 s1
 
     | App (e1, e2) ->
         let t1, s1 = typeinfer_expr env e1
@@ -320,7 +321,7 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
 
         let t1, s1 = typeinfer_expr ((f, f_sch) :: env) e1
 
-        let sch_1 = generalize_to_scheme (apply_substitution_ty t1 s1) (apply_substitution_scheme_env env s1)
+        let sch_1 = generalize_to_scheme t1 (apply_substitution_scheme_env env s1)
 
         let s2 = match tyo with
                  | None -> List.empty
@@ -351,7 +352,7 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
         | None ->
             let s6 = unify t2 TyUnit
 
-            apply_substitution_ty t2 s6, compose_subst s6 s5
+            t2, compose_subst s6 s5
 
         | Some e3 ->
             let t3, s6 = typeinfer_expr (apply_substitution_scheme_env env s5) e3
