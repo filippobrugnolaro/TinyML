@@ -353,4 +353,4 @@ MigrationBackup/
 .ionide/
 
 # Others
-.fsyacc.output
+*.fsyacc.output
