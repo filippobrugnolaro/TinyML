@@ -45,7 +45,6 @@ let rec pretty_ty_tvs mappings t =
     match t with
     | TyName s -> s
     | TyArrow (TyArrow(t1, t2), t3) -> sprintf "(%s -> %s) -> %s" (pretty_ty_tvs mappings t1) (pretty_ty_tvs mappings t2) (pretty_ty_tvs mappings t3)
-    | TyArrow (t1, TyArrow(t2, t3)) -> sprintf "%s -> (%s -> %s)" (pretty_ty_tvs mappings t1) (pretty_ty_tvs mappings t2) (pretty_ty_tvs mappings t3)
     | TyArrow (t1, t2) -> sprintf "%s -> %s" (pretty_ty_tvs mappings t1) (pretty_ty_tvs mappings t2)
     | TyVar n -> 
         let _, pretty_tv = List.find (fun (ftv, _) -> ftv = n) mappings
@@ -79,11 +78,6 @@ let generalize_to_scheme (t: ty) (env: scheme env) : scheme =
         ------------------------------------
                   REFRESH OF TYVAR
         ------------------------------------
-        question for prefessor: can I use mutable variables?
-        If I don't use mutable counter
-        it doesn't work and it would be more complex
-        because it needs the list of refreshed variables in order
-        to get the count updated
 *) 
 
 let mutable tyVarCounter = 0
@@ -170,25 +164,21 @@ let instantiate_to_ty (Forall(tvs, ts)): ty =
         -----------------------------------
                     UNIFICATION
         -----------------------------------
-        question for professor:
-        - can I do it in a single way with (TyVar tv, t)?
-        - Is isMinLen needed and how much do I have to describe errors' details?
 *)
 
 let rec unify (t1 : ty) (t2 : ty) : subst =
     match t1, t2 with
     | TyName tn1, TyName tn2 -> if tn1 = tn2 then List.empty else type_error "Cannot unify type constructors %s and %s." tn1 tn2
-    | TyVar tv, t -> List.singleton(tv,t) 
-    | t, TyVar tv -> List.singleton(tv,t) 
+    | (TyVar tv, t | t, TyVar tv) -> List.singleton(tv,t) 
     | TyArrow (t1, t2), TyArrow (t3, t4) -> compose_subst (unify t1 t3) (unify t2 t4)
     | TyTuple tt1, TyTuple tt2 ->
 
-        let isMinLen = List.length tt1 > 1 && List.length tt2 > 1
+        assert (List.length tt1 > 1 && List.length tt2 > 1) // if false -> interromption runtime with unexpected_error message (it should't happen in the program)
         let isEqLen = List.length tt1 = List.length tt2
 
-        if isMinLen && isEqLen then List.fold (fun acc (t1,t2) -> compose_subst (unify t1 t2) acc) List.empty (List.zip tt1 tt2)
+        if isEqLen then List.fold (fun acc (t1,t2) -> compose_subst (unify t1 t2) acc) List.empty (List.zip tt1 tt2)
         else
-            if not isMinLen then type_error "Cannot unify tuples. Tuples needs at least two ty." else type_error "Cannot unify tuples with different lengths."
+           type_error "Cannot unify tuples with different lengths."
     | _ -> type_error "Cannot unify types %O and %O" t1 t2
 
 // basic environment: add builtin operators at will
@@ -204,11 +194,11 @@ let ty_env_gamma_0 = [
     ("/", TyArrow (TyInt, TyArrow(TyInt, TyInt)))
     ("%", TyArrow (TyInt, TyArrow(TyInt, TyInt)))
 
-    ("+", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
-    ("-", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
-    ("*", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
-    ("/", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
-    ("%", TyArrow (TyFloat, TyArrow(TyFloat, TyFloat)))
+    ("+.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("-.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("*.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("/.", TyArrow (TyFloat, TyArrow (TyFloat, TyFloat)))
+    ("%.", TyArrow (TyFloat, TyArrow(TyFloat, TyFloat)))
 
     // binary float operators
 
@@ -218,13 +208,15 @@ let ty_env_gamma_0 = [
     ("<=", TyArrow (TyInt, TyArrow(TyInt, TyBool)))
     ("=", TyArrow (TyInt, TyArrow(TyInt, TyBool)))
     ("<>", TyArrow (TyInt, TyArrow(TyInt, TyBool)))
+    ("%", TyArrow (TyInt, TyArrow(TyInt, TyBool)))
 
-    (">", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    (">=", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    ("<", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    ("<=", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    ("=", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
-    ("<>", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    (">.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    (">=.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("<.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("<=.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("=.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("<>.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
+    ("%.", TyArrow (TyFloat, TyArrow(TyFloat, TyBool)))
 
     // binary bool operators
 
@@ -234,8 +226,8 @@ let ty_env_gamma_0 = [
     // unary operators
 
     ("not", TyArrow (TyBool, TyBool))
-    ("-", TyArrow (TyInt, TyInt))
-    ("-", TyArrow (TyFloat, TyFloat))
+    ("neg", TyArrow (TyInt, TyInt))
+    ("neg.", TyArrow (TyFloat, TyFloat))
 
 ]
 
@@ -247,9 +239,6 @@ let scheme_env_gamma_0 = List.map (fun (op, t) -> op, Forall (Set.empty, t)) ty_
         ----------------------------------------
                 TYPE INFERENCE ALGORITHM
         ----------------------------------------
-        question for professor:
-        - IfThenElse: If e3o is None, do I have to apply substitution made by unifying t2 with TyUnit? Why TyUnit?
-        - Lambda & Let & LetRec: how about tyo?
 *)
 
 let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
@@ -269,14 +258,20 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
         | None -> type_error "Identifier %s not definined in the environment" x
         | Some (_,sch) -> instantiate_to_ty sch, List.empty
 
-    | Lambda (x, tyo, e) -> // TO DO tyo
+    | Lambda (x, tyo, e) ->
 
-        let alpha = make_fresh_tyvar () // TO DO check
+        let alpha = make_fresh_tyvar ()
         let sch = Forall(Set.empty, alpha)
 
         let t2, s1 = typeinfer_expr ((x, sch) :: env) e
 
-        TyArrow(apply_substitution_ty alpha s1, t2), s1
+        let s2 = match tyo with
+                 | None -> List.empty
+                 | Some t -> unify t alpha
+        
+        let s3 = compose_subst s2 s1
+
+        TyArrow(apply_substitution_ty alpha s3, t2), s3
 
     | App (e1, e2) ->
         let t1, s1 = typeinfer_expr env e1
@@ -284,40 +279,60 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
 
         let s3 = compose_subst s2 s1
 
-        let alpha_freshed = make_fresh_tyvar () // TO DO check
+        let alpha_freshed = make_fresh_tyvar ()
 
-        let s4 = unify t1 (TyArrow(t2, alpha_freshed)) // 
+        let s4 = unify (TyArrow(apply_substitution_ty t2 s3, alpha_freshed)) (apply_substitution_ty t1 s3)
 
         apply_substitution_ty alpha_freshed s4, compose_subst s4 s3
 
-    | Tuple tl -> failwithf "not implemented" // TO DO
+    | Tuple tl -> 
+        let add_tuple (ts, s) exp = 
+            let t_i, s_i = typeinfer_expr (apply_substitution_scheme_env env s) exp
+            ts @ List.singleton (apply_substitution_ty t_i s_i), compose_subst s_i s
 
-    | Let (x, tyo, e1, e2) -> // TO DO tyo
+        let ts, s = List.fold add_tuple (List.empty, List.empty) tl
+
+        TyTuple ts, s
+
+    | Let (x, tyo, e1, e2) ->
 
         let t1, s1 = typeinfer_expr env e1
-        let sch = generalize_to_scheme t1 (apply_substitution_scheme_env env s1)
 
-        let t2, s2 = typeinfer_expr ((x, sch) :: apply_substitution_scheme_env env s1) e2
+        let s2 = match tyo with
+                 | None -> List.empty
+                 | Some t -> unify t1 t
 
         let s3 = compose_subst s2 s1
 
-        apply_substitution_ty t2 s3, s3
+        let sch = generalize_to_scheme t1 (apply_substitution_scheme_env env s3)
+
+        let t2, s4 = typeinfer_expr ((x, sch) :: apply_substitution_scheme_env env s3) e2
+
+        let s5 = compose_subst s4 s3
+
+        apply_substitution_ty t2 s5, s5
 
 
-    | LetRec (f, tyo, e1, e2) -> // TO DO tyo
+    | LetRec (f, tyo, e1, e2) ->
         
         let alpha = make_fresh_tyvar ()
         let f_sch = Forall(Set.empty, alpha)
 
         let t1, s1 = typeinfer_expr ((f, f_sch) :: env) e1
 
-        let sch_1 = generalize_to_scheme t1 (apply_substitution_scheme_env env s1)
+        let sch_1 = generalize_to_scheme (apply_substitution_ty t1 s1) (apply_substitution_scheme_env env s1)
 
-        let t2, s2 = typeinfer_expr ((f, sch_1) :: (apply_substitution_scheme_env env s1)) e2
+        let s2 = match tyo with
+                 | None -> List.empty
+                 | Some t -> unify t1 t
 
         let s3 = compose_subst s2 s1
 
-        apply_substitution_ty t2 s3, s3
+        let t2, s4 = typeinfer_expr ((f, sch_1) :: (apply_substitution_scheme_env env s3)) e2
+
+        let s5 = compose_subst s4 s3
+
+        apply_substitution_ty t2 s5, s5
         
     
     | IfThenElse (e1, e2, e3o) -> 
@@ -357,7 +372,7 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
                 unexpected_error "typeinfer_expr: unsupported binary operator (%s)" op
 
     | UnOp (op, e) ->
-        if List.contains op (List.map (fun (s, _) -> s) scheme_env_gamma_0)
+        if List.contains op (List.map (fun (str, _) -> str) scheme_env_gamma_0)
             then  
                 typeinfer_expr env (App (Var op, e))
             else 

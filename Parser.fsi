@@ -19,15 +19,28 @@ type token =
   | STAR
   | SLASH
   | PERCENT
+  | PLUS_DOT
+  | MINUS_DOT
+  | STAR_DOT
+  | SLASH_DOT
+  | PERCENT_DOT
   | LT
   | GT
   | LEQ
   | GEQ
   | EQ
   | NEQ
+  | LT_DOT
+  | GT_DOT
+  | LEQ_DOT
+  | GEQ_DOT
+  | EQ_DOT
+  | NEQ_DOT
   | AND
   | OR
   | NOT
+  | NEG
+  | NEG_DOT
   | COLON
   | SEMICOLON2
   | COMMA
@@ -55,15 +68,28 @@ type tokenId =
     | TOKEN_STAR
     | TOKEN_SLASH
     | TOKEN_PERCENT
+    | TOKEN_PLUS_DOT
+    | TOKEN_MINUS_DOT
+    | TOKEN_STAR_DOT
+    | TOKEN_SLASH_DOT
+    | TOKEN_PERCENT_DOT
     | TOKEN_LT
     | TOKEN_GT
     | TOKEN_LEQ
     | TOKEN_GEQ
     | TOKEN_EQ
     | TOKEN_NEQ
+    | TOKEN_LT_DOT
+    | TOKEN_GT_DOT
+    | TOKEN_LEQ_DOT
+    | TOKEN_GEQ_DOT
+    | TOKEN_EQ_DOT
+    | TOKEN_NEQ_DOT
     | TOKEN_AND
     | TOKEN_OR
     | TOKEN_NOT
+    | TOKEN_NEG
+    | TOKEN_NEG_DOT
     | TOKEN_COLON
     | TOKEN_SEMICOLON2
     | TOKEN_COMMA

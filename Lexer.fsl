@@ -61,6 +61,20 @@ and tokenize = parse
 	| "or"			{ OR }
 	| "and"			{ AND }
 	| "not"			{ NOT }
+	| "neg"			{ NEG }
+
+	| "+."			{ PLUS_DOT }
+	| "-."			{ MINUS_DOT }
+	| "*."			{ STAR_DOT }
+	| "/."			{ SLASH_DOT }
+	| "%."			{ PERCENT_DOT }
+	| "=."			{ EQ_DOT }
+	| "<>."			{ NEQ_DOT }
+	| "<."			{ LT_DOT }
+	| ">."			{ GT_DOT }
+	| "<=."			{ LEQ_DOT }
+	| ">=."			{ GEQ_DOT }
+	| "neg."		{ NEG_DOT }
 
 	// keywords
 	| "if"			{ IF }
