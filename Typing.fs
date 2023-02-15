@@ -173,7 +173,7 @@ let rec unify (t1 : ty) (t2 : ty) : subst =
     | TyArrow (t1, t2), TyArrow (t3, t4) -> compose_subst (unify t1 t3) (unify t2 t4)
     | TyTuple tt1, TyTuple tt2 ->
 
-        assert (List.length tt1 > 1 && List.length tt2 > 1) // if false -> interromption runtime with unexpected_error message (it should't happen in the program)
+        assert (List.length tt1 > 1 && List.length tt2 > 1) // if false -> interruption runtime with unexpected_error message (it should't happen in the program)
         let isEqLen = List.length tt1 = List.length tt2
 
         if isEqLen then List.fold (fun acc (t1,t2) -> compose_subst (unify t1 t2) acc) List.empty (List.zip tt1 tt2)
