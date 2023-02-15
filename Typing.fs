@@ -305,7 +305,7 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
 
         let s3 = compose_subst s2 s1
 
-        let sch = generalize_to_scheme t1 (apply_substitution_scheme_env env s3)
+        let sch = generalize_to_scheme (apply_substitution_ty t1 s3) (apply_substitution_scheme_env env s2)
 
         let t2, s4 = typeinfer_expr ((x, sch) :: apply_substitution_scheme_env env s3) e2
 
@@ -334,8 +334,8 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
         let s5 = compose_subst s4 s3
 
         apply_substitution_ty t2 s5, s5
-        
-    
+
+
     | IfThenElse (e1, e2, e3o) -> 
 
         let t1, s1 = typeinfer_expr env e1
@@ -379,12 +379,15 @@ let rec typeinfer_expr (env : scheme env) (e : expr) : ty * subst =
             else 
                 unexpected_error "typeinfer_expr: unsupported unary operator (%s)" op
 
-    | _ -> type_error "Expresssion inserted not implemented"
+    | _ -> unexpected_error "typeinfer_expr: unsupported expression: %s [AST: %A]" (pretty_expr e) e
 
 
-// type checker
-//
-    
+(*
+    ------------------------
+    TYPE CHECKING ALGORITHM
+    ------------------------
+*)
+
 let rec typecheck_expr (env : ty env) (e : expr) : ty =
     match e with
     | Lit (LInt _) -> TyInt
